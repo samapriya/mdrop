@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import re
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
@@ -55,13 +56,16 @@ app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 # --- Helpers ---
 def cleanup_file(path: Path):
     """
-    Synchronous cleanup used as a BackgroundTask — runs AFTER the response
-    has been fully sent to the client, so the file is never deleted mid-transfer.
+    Called as a FastAPI BackgroundTask — runs AFTER the response has been fully
+    sent to the client. Waits 60 seconds before deleting so the file is never
+    removed mid-transfer even on very slow connections.
     """
+    import time
+    time.sleep(60)
     try:
         if path.exists():
             path.unlink()
-            logger.info(f"Deleted: {path}")
+            logger.info(f"Deleted (post-download): {path}")
     except Exception as e:
         logger.error(f"Failed to delete {path}: {e}")
 
@@ -95,7 +99,10 @@ async def convert_file(request: Request, file: UploadFile = File(...)):
         )
 
     job_id = uuid.uuid4().hex
-    stem = Path(file.filename).stem
+    raw_stem = Path(file.filename).stem
+    # Sanitize stem — replace anything not alphanumeric/hyphen with underscore
+    # so the token is always URL-safe and passes validation
+    stem = re.sub(r'[^a-zA-Z0-9\-]', '_', raw_stem).strip('_') or "file"
     input_path  = UPLOAD_DIR / f"{job_id}{suffix}"
     output_path = OUTPUT_DIR / f"{job_id}_{stem}.md"
 
