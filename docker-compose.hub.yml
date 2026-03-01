@@ -1,0 +1,43 @@
+services:
+  mdrop:
+    image: samapriya/mdrop:latest
+    container_name: mdrop
+    ports:
+      - "8292:8000" # Change left side to use a different host port
+    environment:
+      - PYTHONUNBUFFERED=1
+    tmpfs:
+      # RAM-only storage — files never touch disk
+      - /tmp/mdrop:size=1g,mode=1777
+    restart: unless-stopped
+
+# ──────────────────────────────────────────────────────────────────────────────
+# USAGE:
+#   docker compose -f docker-compose.hub.yml up -d
+#   docker compose -f docker-compose.hub.yml pull && docker compose -f docker-compose.hub.yml up -d
+#
+# REVERSE PROXY EXAMPLES (all optional — pick one):
+#
+# Cloudflare Tunnel:
+#   cloudflared tunnel --url http://localhost:8000
+#
+# Pangolin / Newt:
+#   Point resource to http://localhost:8000
+#
+# Caddy (Caddyfile):
+#   yourdomain.com {
+#     reverse_proxy localhost:8000
+#   }
+#
+# Nginx:
+#   location / {
+#     proxy_pass http://localhost:8000;
+#     proxy_read_timeout 120s;
+#   }
+#
+# Traefik labels (add to the mdrop service above):
+#   labels:
+#     - "traefik.enable=true"
+#     - "traefik.http.routers.mdrop.rule=Host(`yourdomain.com`)"
+#     - "traefik.http.services.mdrop.loadbalancer.server.port=8000"
+# ──────────────────────────────────────────────────────────────────────────────

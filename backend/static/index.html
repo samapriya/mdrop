@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MDrop — Document to Markdown</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Playfair+Display:wght@500;600;700;900&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#1a1a18',
+            paper: '#f4f1ea',
+            cream: '#ede9df',
+            rule: '#c8c2b4',
+            accent: {
+              DEFAULT: '#2d5a27',
+              lt: '#4a8c42'
+            },
+            red: '#c0392b',
+          },
+          fontFamily: {
+            mono: ['"IBM Plex Mono"', 'monospace'],
+            serif: ['"Playfair Display"', 'serif'],
+            sans: ['"IBM Plex Sans"', 'sans-serif'],
+          },
+          boxShadow: {
+            'soft': '0 4px 20px -2px rgba(26, 26, 24, 0.05)',
+            'float': '0 10px 30px -5px rgba(26, 26, 24, 0.08)',
+            'glow': '0 0 15px rgba(45, 90, 39, 0.3)',
+          },
+          animation: {
+            'pop-in': 'popIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            'slide-up': 'slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+            'progress-pulse': 'progressPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'float-icon': 'floatIcon 3s ease-in-out infinite',
+          },
+          keyframes: {
+            popIn: {
+              '0%': { opacity: '0', transform: 'scale(0.96) translateY(10px)' },
+              '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+            },
+            slideUp: {
+              '0%': { opacity: '0', transform: 'translateY(30px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            progressPulse: {
+              '0%, 100%': { opacity: '1' },
+              '50%': { opacity: '0.7' },
+            },
+            floatIcon: {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-6px)' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: theme('colors.paper');
+      color: theme('colors.ink');
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: theme('colors.rule'); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: theme('colors.ink'); }
+
+    .drag-over {
+      border-color: theme('colors.accent.DEFAULT') !important;
+      background-color: theme('colors.cream') !important;
+      transform: scale(1.01);
+    }
+    .drag-over .drop-icon-ring {
+      background-color: theme('colors.accent.DEFAULT');
+      color: theme('colors.paper');
+      transform: scale(1.1);
+      box-shadow: theme('boxShadow.glow');
+    }
+
+    .hidden-state { display: none !important; }
+    
+    .dashed-border-animate {
+      background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='24' ry='24' stroke='%23c8c2b4' stroke-width='2' stroke-dasharray='8%2c 12' stroke-dashoffset='0' stroke-linecap='round'/%3e%3c/svg%3e");
+      border-radius: 24px;
+      transition: all 0.3s ease;
+    }
+    .drop-zone-wrapper:hover .dashed-border-animate {
+      background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='24' ry='24' stroke='%232d5a27' stroke-width='2' stroke-dasharray='8%2c 12' stroke-dashoffset='0' stroke-linecap='round'/%3e%3c/svg%3e");
+    }
+
+    @keyframes shimmer {
+      100% { transform: translateX(200%); }
+    }
+
+    /* Microsoft logo colors on "Get Markdown." */
+    .ms-gradient {
+      background: linear-gradient(
+        90deg,
+        #f25022 0%,       /* Microsoft red   — G */
+        #f25022 14.28%,
+        #ffb900 14.28%,   /* Microsoft yellow — e */
+        #ffb900 28.57%,
+        #ffb900 28.57%,   /* yellow          — t */
+        #7fba00 42.85%,   /* Microsoft green — ' ' */
+        #7fba00 42.85%,
+        #7fba00 57.14%,   /* green           — M */
+        #00a4ef 57.14%,   /* Microsoft blue  — a */
+        #00a4ef 71.43%,
+        #00a4ef 71.43%,   /* blue            — r */
+        #7fba00 85.71%,   /* green           — k */
+        #7fba00 85.71%,
+        #ffb900 100%      /* yellow          — d */
+      );
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body class="font-sans antialiased min-h-screen flex flex-col selection:bg-accent selection:text-paper">
+
+  <!-- Floating Glass Header -->
+  <header class="fixed top-0 w-full z-50 px-4 py-4 sm:px-8">
+    <div class="max-w-6xl mx-auto flex items-center justify-between bg-paper/70 backdrop-blur-xl border border-rule/30 rounded-2xl px-5 py-3 shadow-soft">
+      <div class="flex items-center gap-3 cursor-pointer transition-transform hover:scale-[1.02] origin-left">
+        <span class="font-serif text-2xl font-bold tracking-tight text-ink">
+          M<span class="text-accent italic pr-0.5">Drop</span>
+        </span>
+        <span class="font-mono text-[10px] text-accent tracking-widest uppercase font-semibold bg-accent/10 px-2 py-0.5 rounded-full">
+          v1.0
+        </span>
+      </div>
+      <div class="hidden sm:flex items-center gap-2">
+        <span class="font-mono text-[11px] text-ink/70 tracking-widest flex items-center gap-2">
+          DOCUMENT <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> MARKDOWN
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 flex flex-col items-center justify-center p-6 w-full max-w-4xl mx-auto relative z-10 mt-24 mb-12">
+    
+    <!-- Hero -->
+    <div id="hero-section" class="text-center mb-14 animate-slide-up w-full">
+      <h1 class="font-serif text-6xl sm:text-7xl md:text-8xl font-bold leading-[1.05] tracking-tighter mb-6 text-ink drop-shadow-sm">
+        Drop it.<br/>
+        <span class="ms-gradient">Get Markdown.</span>
+      </h1>
+      <p class="font-sans font-light text-lg sm:text-xl text-ink/60 max-w-md mx-auto leading-relaxed">
+        Upload any document. We convert it to clean, perfectly formatted Markdown, then forget it ever existed.
+      </p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="drop-container" class="w-full max-w-2xl animate-slide-up" style="animation-delay: 0.1s;">
+      
+      <div class="drop-zone-wrapper relative w-full rounded-[24px] p-[1px] transition-all duration-300 hover:shadow-float group">
+        <div class="dashed-border-animate absolute inset-0 pointer-events-none"></div>
+        
+        <div id="drop-zone" tabindex="0" role="button" aria-label="Upload file" 
+             class="relative w-full bg-cream/30 backdrop-blur-sm rounded-[24px] p-12 sm:p-16 flex flex-col items-center justify-center cursor-pointer transition-all duration-300 hover:bg-cream/60 outline-none focus:ring-2 focus:ring-accent focus:ring-offset-4 focus:ring-offset-paper overflow-hidden">
+          
+          <input type="file" id="file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                 accept=".pdf,.pptx,.ppt,.docx,.doc,.xlsx,.xls,.jpg,.jpeg,.png,.gif,.webp,.bmp,.html,.htm,.csv,.json,.xml,.zip,.epub,.wav,.mp3,.txt,.md" />
+          
+          <div class="drop-icon-ring w-16 h-16 rounded-full bg-paper shadow-soft border border-rule/30 flex items-center justify-center text-ink/70 mb-6 transition-all duration-500 ease-out group-hover:animate-float-icon group-hover:text-accent">
+            <svg viewBox="0 0 24 24" stroke-width="1.5" class="w-6 h-6 stroke-current fill-none">
+              <path d="M12 16.5V4m0 0L7.5 8.5M12 4l4.5 4.5M4 20h16" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          
+          <p class="font-sans text-lg font-medium text-ink mb-2 transition-colors group-hover:text-accent">
+            Click or drag file to upload
+          </p>
+          <p class="font-mono text-[11px] sm:text-xs text-ink/50 tracking-widest uppercase">
+            Max 100MB per file
+          </p>
+        </div>
+      </div>
+
+      <!-- File Type Badges -->
+      <div class="flex flex-wrap justify-center gap-2 mt-10 max-w-lg mx-auto opacity-80">
+        <script>
+          const types = ['PDF', 'DOCX', 'PPTX', 'XLSX', 'HTML', 'CSV', 'JSON', 'XML', 'EPUB', 'IMAGE', 'AUDIO'];
+          document.write(types.map(t => `<span class="font-mono text-[10px] font-medium tracking-widest px-3 py-1.5 border border-rule/30 rounded-full text-ink/60 bg-paper shadow-sm">${t}</span>`).join(''));
+        </script>
+      </div>
+    </div>
+
+    <!-- Status Area -->
+    <div id="status-area" class="w-full max-w-lg hidden-state animate-pop-in">
+      
+      <!-- File Card -->
+      <div class="bg-paper/80 backdrop-blur-md border border-rule/40 rounded-2xl p-4 flex items-center gap-4 shadow-float mb-8 relative overflow-hidden group">
+        <div class="absolute top-0 left-0 h-[2px] w-full bg-gradient-to-r from-transparent via-accent/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        
+        <div class="w-12 h-12 rounded-xl bg-cream flex items-center justify-center flex-shrink-0 text-ink/70 shadow-inner">
+          <svg viewBox="0 0 24 24" stroke-width="1.5" class="w-6 h-6 stroke-current fill-none">
+            <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        
+        <div class="flex-1 min-w-0 pr-2">
+          <div class="font-sans text-sm font-semibold text-ink truncate mb-0.5" id="file-name">—</div>
+          <div class="font-mono text-[11px] text-ink/50 tracking-wider uppercase" id="file-size">—</div>
+        </div>
+        
+        <button id="card-reset-btn" class="p-2.5 text-ink/30 hover:text-red hover:bg-red/5 rounded-full transition-all duration-200" title="Remove file">
+          <svg viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 stroke-current fill-none">
+            <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Progress -->
+      <div id="progress-container" class="hidden-state mb-8">
+        <div class="flex justify-between items-end mb-3">
+          <span id="status-msg" class="font-mono text-[11px] text-ink/70 tracking-widest uppercase font-medium">Processing</span>
+          <span id="progress-text" class="font-mono text-[11px] text-accent font-semibold">0%</span>
+        </div>
+        <div class="h-1.5 w-full bg-rule/30 rounded-full overflow-hidden">
+          <div id="progress-bar" class="h-full bg-accent rounded-full w-0 transition-all duration-300 ease-out animate-progress-pulse relative">
+            <div class="absolute inset-0 bg-white/20 w-full h-full animate-[pulse_1s_ease-in-out_infinite]"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="error-box" class="hidden-state border border-red/30 bg-red/5 backdrop-blur-sm rounded-xl p-4 mb-8 flex items-start gap-3 text-red shadow-sm">
+        <svg viewBox="0 0 24 24" stroke-width="2" class="w-5 h-5 flex-shrink-0 stroke-current fill-none mt-0.5">
+          <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span id="error-msg" class="font-sans text-sm font-medium leading-relaxed"></span>
+      </div>
+
+      <!-- Buttons -->
+      <div class="flex flex-col gap-3 w-full">
+        <button id="btn-convert" class="w-full py-4 px-6 bg-ink text-paper font-sans text-sm font-semibold tracking-wide rounded-xl shadow-float hover:bg-ink/90 hover:-translate-y-0.5 focus:ring-2 focus:ring-ink focus:ring-offset-2 focus:ring-offset-paper transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2">
+          <span>Convert to Markdown</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 opacity-70"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </button>
+
+        <a id="btn-download" href="#" download class="hidden-state w-full py-4 px-6 bg-accent text-white font-sans text-sm font-semibold tracking-wide rounded-xl shadow-float hover:bg-accent-lt hover:-translate-y-0.5 focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-paper transition-all duration-200 flex items-center justify-center gap-2 animate-pop-in relative overflow-hidden group">
+          <div class="absolute inset-0 bg-white/10 w-full h-full transform -skew-x-12 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]"></div>
+          <svg viewBox="0 0 24 24" stroke-width="2" class="w-5 h-5 stroke-current fill-none relative z-10">
+            <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="relative z-10">Download Markdown</span>
+        </a>
+      </div>
+
+      <!-- Success footer -->
+      <div id="success-footer" class="hidden-state mt-8 text-center animate-slide-up">
+        <div class="inline-flex items-center gap-2 bg-accent/5 border border-accent/10 px-3 py-1.5 rounded-full mb-6">
+          <div class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></div>
+          <p class="font-mono text-[10px] text-accent tracking-widest uppercase font-semibold">
+            File deleted from server
+          </p>
+        </div>
+        <button id="reset-btn" class="block w-full text-center font-sans text-sm font-medium text-ink/50 hover:text-ink transition-colors flex items-center justify-center gap-1.5">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4"><path d="m15 18-6-6 6-6"/></svg>
+          Convert another document
+        </button>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="mt-auto relative z-10 w-full pb-6 px-6">
+    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left pt-6 border-t border-rule/30">
+      <span class="font-mono text-[10px] text-ink/40 tracking-widest uppercase font-medium flex items-center gap-3 flex-wrap justify-center sm:justify-start">
+        <span>Powered by <a href="https://github.com/microsoft/markitdown" target="_blank" class="text-ink/60 hover:text-accent transition-colors">MarkItDown</a></span>
+        <span class="text-rule/50">·</span>
+        <a href="https://github.com/samapriya/mdrop" target="_blank" class="text-ink/50 hover:text-accent transition-colors flex items-center gap-1">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-3 h-3"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          samapriya/mdrop
+        </a>
+        <span class="text-rule/50">·</span>
+        <a href="https://hub.docker.com/r/samapriya/mdrop" target="_blank" class="text-ink/50 hover:text-accent transition-colors flex items-center gap-1">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-3 h-3"><path d="M13.983 11.078h2.119a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.119a.185.185 0 0 0-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 0 0 .186-.186V3.574a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.186m0 2.716h2.118a.187.187 0 0 0 .186-.186V6.29a.186.186 0 0 0-.186-.185h-2.118a.185.185 0 0 0-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 0 0 .184-.186V6.29a.185.185 0 0 0-.185-.185H8.1a.185.185 0 0 0-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 0 0 .185-.186V6.29a.185.185 0 0 0-.185-.185H5.136a.186.186 0 0 0-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 0 0 .186-.185V9.006a.186.186 0 0 0-.186-.186h-2.118a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.185.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 0 0 .185-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.186.186 0 0 0-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 0 0 .184-.185V9.006a.185.185 0 0 0-.184-.186h-2.12a.185.185 0 0 0-.185.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.085-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 0 0-.75.748 11.376 11.376 0 0 0 .692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 0 0 3.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg>
+          Docker Hub
+        </a>
+      </span>
+      <span class="font-mono text-[10px] text-ink/40 tracking-widest uppercase font-medium flex items-center gap-1.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Zero Retention Policy
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    // Relative paths — works behind any reverse proxy (Cloudflare, Pangolin, Caddy, nginx, Traefik, etc.)
+    const API = '';
+
+    const els = {
+      hero:              document.getElementById('hero-section'),
+      dropContainer:     document.getElementById('drop-container'),
+      dropZone:          document.getElementById('drop-zone'),
+      fileInput:         document.getElementById('file-input'),
+      statusArea:        document.getElementById('status-area'),
+      fileName:          document.getElementById('file-name'),
+      fileSize:          document.getElementById('file-size'),
+      progressContainer: document.getElementById('progress-container'),
+      progressBar:       document.getElementById('progress-bar'),
+      progressText:      document.getElementById('progress-text'),
+      statusMsg:         document.getElementById('status-msg'),
+      errorBox:          document.getElementById('error-box'),
+      errorMsg:          document.getElementById('error-msg'),
+      btnConvert:        document.getElementById('btn-convert'),
+      btnDownload:       document.getElementById('btn-download'),
+      successFooter:     document.getElementById('success-footer'),
+      resetBtn:          document.getElementById('reset-btn'),
+      cardResetBtn:      document.getElementById('card-reset-btn'),
+    };
+
+    let selectedFile = null;
+    let downloadToken = null;
+    let downloadFilename = null;
+
+    const formatBytes = (bytes) => {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024**2) return (bytes/1024).toFixed(1) + ' KB';
+      return (bytes/1024**2).toFixed(1) + ' MB';
+    };
+
+    const show = (el) => el.classList.remove('hidden-state');
+    const hide = (el) => el.classList.add('hidden-state');
+
+    const handleFileSelect = (file) => {
+      if (!file) return;
+      // 100MB client-side guard — instant feedback, no upload attempt
+      if (file.size > 100 * 1024 * 1024) {
+        showError('File is too large. Maximum size is 100MB.');
+        return;
+      }
+      selectedFile = file;
+      els.fileName.textContent = file.name;
+      els.fileSize.textContent = formatBytes(file.size);
+      hide(els.hero);
+      hide(els.dropContainer);
+      hide(els.progressContainer);
+      hide(els.errorBox);
+      hide(els.btnDownload);
+      hide(els.successFooter);
+      show(els.statusArea);
+      show(els.btnConvert);
+      els.btnConvert.disabled = false;
+      els.progressBar.style.width = '0%';
+      els.progressText.textContent = '0%';
+    };
+
+    const showError = (msg) => {
+      els.errorMsg.textContent = msg;
+      show(els.errorBox);
+      hide(els.progressContainer);
+      els.btnConvert.disabled = false;
+    };
+
+    const resetUI = () => {
+      selectedFile = null;
+      downloadToken = null;
+      els.fileInput.value = '';
+      hide(els.statusArea);
+      show(els.hero);
+      show(els.dropContainer);
+    };
+
+    // Drag & drop
+    ['dragover', 'dragenter'].forEach(evt =>
+      els.dropZone.addEventListener(evt, e => { e.preventDefault(); els.dropZone.classList.add('drag-over'); })
+    );
+    ['dragleave', 'dragend', 'drop'].forEach(evt =>
+      els.dropZone.addEventListener(evt, e => { e.preventDefault(); els.dropZone.classList.remove('drag-over'); })
+    );
+    els.dropZone.addEventListener('drop', e => handleFileSelect(e.dataTransfer.files[0]));
+    els.fileInput.addEventListener('change', e => handleFileSelect(e.target.files[0]));
+    els.resetBtn.addEventListener('click', resetUI);
+    els.cardResetBtn.addEventListener('click', resetUI);
+
+    els.btnConvert.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      els.btnConvert.disabled = true;
+      hide(els.errorBox);
+      show(els.progressContainer);
+      els.statusMsg.textContent = 'Uploading payload';
+      els.progressBar.style.width = '15%';
+      els.progressText.textContent = '15%';
+
+      const form = new FormData();
+      form.append('file', selectedFile);
+
+      try {
+        let prog = 15;
+        const ticker = setInterval(() => {
+          prog = Math.min(prog + Math.random() * 5, 88);
+          const progInt = Math.floor(prog);
+          els.progressBar.style.width = progInt + '%';
+          els.progressText.textContent = progInt + '%';
+          if (prog > 40) els.statusMsg.textContent = 'Parsing document';
+          if (prog > 70) els.statusMsg.textContent = 'Formatting Markdown';
+        }, 300);
+
+        const res = await fetch(`${API}/convert`, { method: 'POST', body: form });
+        clearInterval(ticker);
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data.detail || 'Conversion failed. Please try a different file format.');
+        }
+
+        els.progressBar.style.width = '100%';
+        els.progressText.textContent = '100%';
+        els.statusMsg.textContent = 'Conversion Complete';
+        downloadToken = data.download_token;
+        downloadFilename = data.output_filename;
+
+        setTimeout(() => {
+          hide(els.progressContainer);
+          hide(els.btnConvert);
+          els.btnDownload.href = `${API}/download/${downloadToken}`;
+          els.btnDownload.setAttribute('download', downloadFilename);
+          show(els.btnDownload);
+          show(els.successFooter);
+        }, 600);
+
+      } catch (err) {
+        showError('⚠ ' + err.message);
+      }
+    });
+  </script>
+</body>
+</html>

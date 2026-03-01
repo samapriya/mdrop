@@ -1,0 +1,35 @@
+services:
+  mdrop:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8292:8000" # Change the left side to use a different host port
+    environment:
+      - PYTHONUNBUFFERED=1
+    tmpfs:
+      # RAM-only storage — nothing written to disk
+      - /tmp/mdrop:size=1g,mode=1777
+    restart: unless-stopped
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Reverse proxy setup (choose one — all are optional):
+#
+# Cloudflare Tunnel:
+#   Just point your tunnel to http://localhost:8000
+#
+# Pangolin:
+#   Add MDrop as a target at http://mdrop:8000 if on the same Docker network,
+#   or http://host.docker.internal:8000 if Pangolin runs separately.
+#
+# Caddy (example Caddyfile):
+#   yourdomain.com {
+#     reverse_proxy localhost:8000
+#   }
+#
+# Nginx (example):
+#   location / { proxy_pass http://localhost:8000; }
+#
+# Traefik:
+#   Add standard Traefik labels to the mdrop service above.
+# ──────────────────────────────────────────────────────────────────────────────
