@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,7 +53,20 @@ async def serve_frontend():
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 
 # --- Helpers ---
+def cleanup_file(path: Path):
+    """
+    Synchronous cleanup used as a BackgroundTask — runs AFTER the response
+    has been fully sent to the client, so the file is never deleted mid-transfer.
+    """
+    try:
+        if path.exists():
+            path.unlink()
+            logger.info(f"Deleted: {path}")
+    except Exception as e:
+        logger.error(f"Failed to delete {path}: {e}")
+
 async def cleanup_files(*paths: Path):
+    """Async cleanup for use during request handling (errors, input files)."""
     for path in paths:
         try:
             if path.exists():
@@ -72,7 +85,7 @@ async def health():
 async def convert_file(request: Request, file: UploadFile = File(...)):
     """
     Stream the upload in chunks and abort early if the file exceeds MAX_FILE_SIZE.
-    The input file is deleted immediately after a successful conversion.
+    The input file is deleted immediately after conversion completes.
     """
     suffix = Path(file.filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
@@ -88,7 +101,7 @@ async def convert_file(request: Request, file: UploadFile = File(...)):
 
     bytes_written = 0
     try:
-        # --- Stream to disk in chunks, abort if limit exceeded ---
+        # Stream to disk in chunks — abort early if size limit exceeded
         async with aiofiles.open(input_path, "wb") as f:
             while True:
                 chunk = await file.read(CHUNK_SIZE)
@@ -96,7 +109,6 @@ async def convert_file(request: Request, file: UploadFile = File(...)):
                     break
                 bytes_written += len(chunk)
                 if bytes_written > MAX_FILE_SIZE:
-                    # Close and delete the partial file immediately
                     await f.flush()
                     raise HTTPException(
                         status_code=413,
@@ -106,15 +118,15 @@ async def convert_file(request: Request, file: UploadFile = File(...)):
 
         logger.info(f"Saved upload: {input_path} ({bytes_written / 1024:.1f} KB)")
 
-        # --- Convert ---
+        # Convert
         result = md_converter.convert(str(input_path))
 
-        # --- Write output ---
+        # Write output
         async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
             await f.write(result.text_content)
         logger.info(f"Converted to: {output_path}")
 
-        # --- Delete input immediately ---
+        # Delete input immediately — conversion is done, we no longer need it
         await cleanup_files(input_path)
 
         return JSONResponse({
@@ -134,7 +146,12 @@ async def convert_file(request: Request, file: UploadFile = File(...)):
 
 
 @app.get("/download/{token}")
-async def download_file(token: str):
+async def download_file(token: str, background_tasks: BackgroundTasks):
+    """
+    Serves the converted markdown file and schedules deletion as a BackgroundTask.
+    BackgroundTasks run AFTER the full response has been sent — the file is guaranteed
+    to exist for the entire transfer, unlike asyncio.sleep(2) which races the download.
+    """
     # Strict token validation — alphanumeric + underscore/hyphen only
     if not all(c.isalnum() or c in ("_", "-") for c in token):
         raise HTTPException(status_code=400, detail="Invalid token")
@@ -146,11 +163,8 @@ async def download_file(token: str):
     output_path = matches[0]
     stem = token.split("_", 1)[1] if "_" in token else token
 
-    async def delete_after_send():
-        await asyncio.sleep(2)
-        await cleanup_files(output_path)
-
-    asyncio.create_task(delete_after_send())
+    # Schedule deletion AFTER response is fully sent — no race condition
+    background_tasks.add_task(cleanup_file, output_path)
 
     return FileResponse(
         path=str(output_path),
